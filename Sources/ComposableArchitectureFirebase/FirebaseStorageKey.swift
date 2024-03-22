@@ -1,4 +1,5 @@
 import ComposableArchitecture
+import IdentifiedCollections
 #if canImport(Perception)
   import Combine
   import Foundation
@@ -83,15 +84,6 @@ extension FirebasePath where Element: CollectionPathProtocol {
     }
 }
 
-public struct KeyPair<T: Codable>: Codable {
-    public let key: String
-    public let value: T
-}
-
-extension KeyPair: Equatable where T: Equatable {}
-
-extension KeyPair: Hashable where T: Hashable {}
-
 extension PersistenceKey {
     /// Creates a persistence key that can read and write to a `Codable` value to the file system.
     ///
@@ -103,15 +95,19 @@ extension PersistenceKey {
     }
     
     public static func firebase<Value: Codable>(_ path: CollectionPath<Value>) -> Self
+    where Value: Identifiable, Self == FirebaseStorageKey<IdentifiedArray<Value.ID, Value>> {
+        FirebaseStorageKey(path: path)
+    }
+
+    public static func firebase<Value: Codable>(_ path: CollectionPath<Value>) -> Self
+    where Self == FirebaseStorageKey<IdentifiedArray<String, Identified<String, Value>>> {
+        FirebaseStorageKey(path: path)
+    }
+
+    public static func firebase<Value: Codable>(_ path: CollectionPath<Value>) -> Self
     where Self == FirebaseStorageKey<[Value]> {
         FirebaseStorageKey(path: path)
     }
-    
-//    public static func firebase<Value: Codable>(_ path: CollectionPath<Value>) -> Self
-//    where Self == FirebaseStorageKey<[(String, Value)]> {
-//        FirebaseStorageKey(path: path)
-//    }
-
 }
 
   // TODO: Audit unchecked sendable
@@ -152,8 +148,7 @@ extension PersistenceKey {
       }
   }
   
-  /// XXX TODO: With variadic generics we could conform a tuple of codables to being codable.
-  public init<T: Codable>(path: CollectionPath<T>) where Value == [(String, T)] {
+  public init<T: Codable>(path: CollectionPath<T>) where Value == IdentifiedArray<String, Identified<String, T>> {
       @Dependency(\.defaultFirebaseStorage) var storage
       self.storage = storage
       self.renderedPath = path.rendered
@@ -166,7 +161,28 @@ extension PersistenceKey {
       }
       self._subscribe = { initialValue, didSet in
           let cancellable = storage.collectionListener(path: path.rendered) { (values: [(String, T)]) -> Void in
-              didSet(values)
+              didSet(IdentifiedArray(values.map { Identified($0.1, id: $0.0) }))
+          }
+          return Shared.Subscription {
+              cancellable.cancel()
+          }
+      }
+  }
+  
+  public init<T: Codable>(path: CollectionPath<T>) where T: Identifiable, Value == IdentifiedArray<T.ID, T> {
+      @Dependency(\.defaultFirebaseStorage) var storage
+      self.storage = storage
+      self.renderedPath = path.rendered
+      self.value = LockIsolated<Value?>(nil)
+      
+      // Can't save...
+      self._save = { _ in }
+      self._load = { initialValue in
+          initialValue
+      }
+      self._subscribe = { initialValue, didSet in
+          let cancellable = storage.collectionListener(path: path.rendered) { (values: [(String, T)]) -> Void in
+              didSet(IdentifiedArray(values.map(\.1)))
           }
           return Shared.Subscription {
               cancellable.cancel()
@@ -174,7 +190,6 @@ extension PersistenceKey {
       }
   }
 
-  
   public init(path: FirebasePath<Value>) where Value: Codable {
       @Dependency(\.defaultFirebaseStorage) var storage
       self.storage = storage
@@ -209,6 +224,7 @@ extension PersistenceKey {
           }
       }
   }
+
   
   public func load(initialValue: Value?) -> Value? {
       _load(initialValue)
