@@ -107,10 +107,10 @@ extension PersistenceKey {
         FirebaseStorageKey(path: path)
     }
     
-    public static func firebase<Value: Codable>(_ path: CollectionPath<Value>) -> Self
-    where Self == FirebaseStorageKey<[(String, Value)]> {
-        FirebaseStorageKey(path: path)
-    }
+//    public static func firebase<Value: Codable>(_ path: CollectionPath<Value>) -> Self
+//    where Self == FirebaseStorageKey<[(String, Value)]> {
+//        FirebaseStorageKey(path: path)
+//    }
 
 }
 

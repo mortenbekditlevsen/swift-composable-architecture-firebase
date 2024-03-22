@@ -12,8 +12,8 @@ let package = Package(
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
-            name: "swift-composable-architecture-firebase",
-            targets: ["swift-composable-architecture-firebase"]),
+            name: "ComposableArchitectureFirebase",
+            targets: ["ComposableArchitectureFirebase"]),
     ],
     dependencies: [
         .package(
@@ -29,17 +29,20 @@ let package = Package(
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
-            name: "swift-composable-architecture-firebase",
+            name: "ComposableArchitectureFirebase",
             dependencies: [
                 .product(
                     name: "ComposableArchitecture",
                     package: "swift-composable-architecture"
                 ),
-                .product(name: "FirebaseFirestore", package: "firebase-ios-sdk"),
+                .product(
+                    name: "FirebaseFirestore",
+                    package: "firebase-ios-sdk"
+                ),
             ]
         ),
         .testTarget(
-            name: "swift-composable-architecture-firebaseTests",
-            dependencies: ["swift-composable-architecture-firebase"]),
+            name: "ComposableArchitectureFirebaseTests",
+            dependencies: ["ComposableArchitectureFirebase"]),
     ]
 )
