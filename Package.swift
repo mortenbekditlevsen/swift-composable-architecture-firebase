@@ -39,6 +39,10 @@ let package = Package(
                     name: "FirebaseFirestore",
                     package: "firebase-ios-sdk"
                 ),
+                .product(
+                    name: "FirebaseDatabase",
+                    package: "firebase-ios-sdk"
+                ),
             ]
         ),
         .testTarget(
