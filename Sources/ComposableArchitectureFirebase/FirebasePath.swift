@@ -56,32 +56,62 @@ public enum PathConfig {
     public static var rtdb: PathConfig { .rtdb(.init()) }
 }
 
+public enum PathKind {
+    case both
+    case firestore
+    case rtdb
+}
 public struct FirebasePath<Element> {
     
     var config: PathConfig
     
-    private var components: [String]
-    
+    private var fsComponents: [String]
+    private var rtdbComponents: [String]
+
     public func append<T>(
         _ args: String...,
         config: PathConfig? = nil
     ) -> FirebasePath<T> {
-        FirebasePath<T>(
-            components + args,
+        return FirebasePath<T>(
+            fsComponents: fsComponents + args,
+            rtdbComponents: rtdbComponents + args,
+            config: config ?? self.config
+        )
+    }
+    
+    public func append<T>(
+        fs fsArgs: String...,
+        rtdb rtdbArgs: String...,
+        config: PathConfig? = nil
+    ) -> FirebasePath<T> {
+        return FirebasePath<T>(
+            fsComponents: fsComponents + fsArgs,
+            rtdbComponents: rtdbComponents + rtdbArgs,
             config: config ?? self.config
         )
     }
         
     private init(
-        _ components: [String],
+        fsComponents: [String],
+        rtdbComponents: [String],
         config: PathConfig
     ) {
-        self.components = components
+        self.rtdbComponents = rtdbComponents
+        self.fsComponents = fsComponents
         self.config = config
     }
     
+    var componentsKeyPath: KeyPath<Self, [String]> {
+        switch config {
+        case .firestore:
+            \.fsComponents
+        case .rtdb:
+            \.rtdbComponents
+        }
+    }
+    
     var rendered: String {
-        components.joined(separator: "/")
+        return self[keyPath: componentsKeyPath].joined()
     }
 }
 
@@ -100,7 +130,8 @@ extension FirebasePaths.Collection: CollectionPathProtocol {}
 
 extension FirebasePath where Element == FirebasePaths.Root {
     public init() {
-        self.components = []
+        self.fsComponents = []
+        self.rtdbComponents = []
         self.config = .rtdb(.init())
     }
     
