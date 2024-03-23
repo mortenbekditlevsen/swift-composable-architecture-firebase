@@ -17,14 +17,44 @@ import FirebaseDatabase
 import FirebaseSharedSwift
 import Foundation
 
+#if canImport(FirebaseFirestore)
+extension FirestoreConfig {
+    var firestore: Firestore {
+        if let database {
+            Firestore.firestore(database: database)
+        } else {
+            Firestore.firestore()
+        }
+    }
+}
+#endif
+
+#if canImport(FirebaseDatabase)
+extension RTDBConfig {
+    var database: Database {
+        if let instanceId {
+            let url: String
+            if let regionId {
+                url = "https://\(instanceId).\(regionId).firebasedatabase.app"
+            } else {
+                url = "https://\(instanceId).firebaseio.com"
+            }
+            return Database.database(url: url)
+        } else {
+            return Database.database()
+        }
+    }
+}
+#endif
+
 enum MyError: Error {
     case error
 }
 
-/// A ``FileStorage`` conformance that interacts directly with the file system for saving, loading
-/// and listening for file changes.
+/// A ``FirebaseStorage`` conformance that interacts directly with Firestore for saving, loading
+/// and listening for data changes.
 ///
-/// This is the version of the ``Dependencies/DependencyValues/defaultFileStorage`` dependency that
+/// This is the version of the ``Dependencies/DependencyValues/defaultFirebaseStorage`` dependency that
 /// is used by default when running your app in the simulator or on device.
 final public class LiveFirebaseStorage: FirebaseStorage {
     private let queue: DispatchQueue
@@ -44,43 +74,48 @@ final public class LiveFirebaseStorage: FirebaseStorage {
         path: FirebasePath<T>,
         handler: @escaping (T) -> Void
     ) -> AnyCancellable {
-        if path.isFirestorePath {
-            return documentListenerFirestore(path: path, handler: handler)
-        } else {
-            return documentListenerRTDB(path: path, handler: handler)
+        switch path.config {
+        case .firestore(let config):
+            return documentListenerFirestore(path: path.rendered, config: config, handler: handler)
+        case .rtdb(let config):
+            return documentListenerRTDB(path: path.rendered, config: config, handler: handler)
         }
     }
-    
+        
     private func documentListenerFirestore<T: Decodable>(
-        path: FirebasePath<T>,
+        path: String,
+        config: FirestoreConfig,
         handler: @escaping (T) -> Void
     ) -> AnyCancellable {
 #if canImport(FirebaseFirestore)
-        
-        let registration = Firestore.firestore().document(path.rendered).addSnapshotListener { snap, error in
-            if let data = try? snap?.data(as: T.self)  {
-                handler(data)
+        let registration = config.firestore
+            .document(path)
+            .addSnapshotListener { snap, error in
+                let decoder = config.getDecoder() ?? .init()
+                if let data = try? snap?.data(as: T.self, decoder: decoder)  {
+                    handler(data)
+                }
             }
-        }
+
         return AnyCancellable {
             registration.remove()
         }
 #else
         fatalError("Please link FirebaseFirestore")
 #endif
-        
     }
     
     private func documentListenerRTDB<T: Decodable>(
-        path: FirebasePath<T>,
+        path: String,
+        config: RTDBConfig,
         handler: @escaping (T) -> Void
     ) -> AnyCancellable {
 #if canImport(FirebaseDatabase)
         
-        let db = Database.database()
-        let ref = db.reference(withPath: path.rendered)
+        let db = config.database
+        let ref = db.reference(withPath: path)
         let handle = ref.observe(.value) { snapshot in
-            if let data = try? snapshot.data(as: T.self) {
+            if let data = try? snapshot.data(as: T.self, decoder: config.getDecoder() ?? .init()) {
                 handler(data)
             }
         } withCancel: { error in
@@ -99,27 +134,33 @@ final public class LiveFirebaseStorage: FirebaseStorage {
         path: CollectionPath<T>,
         handler: @escaping ([(String, T)]) -> Void
     ) -> AnyCancellable {
-        if path.isFirestorePath {
-            return collectionListenerFirestore(path: path, handler: handler)
-        } else {
-            return collectionListenerRTDB(path: path, handler: handler)
+        switch path.config {
+        case .firestore(let config):
+            return collectionListenerFirestore(path: path.rendered, config: config, handler: handler)
+        case .rtdb(let config):
+            return collectionListenerRTDB(path: path.rendered, config: config, handler: handler)
         }
     }
     
     private func collectionListenerFirestore<T: Decodable>(
-        path: CollectionPath<T>,
+        path: String,
+        config: FirestoreConfig,
         handler: @escaping ([(String, T)]) -> Void
     ) -> AnyCancellable {
 #if canImport(FirebaseFirestore)
-        let registration = Firestore.firestore().collection(path.rendered).addSnapshotListener { snap, error in
-            guard let snap else { return }
-            handler(snap.documents.compactMap { documentSnap -> (String, T)? in
-                guard let value = try? documentSnap.data(as: T.self) else {
-                    return nil
-                }
-                return (documentSnap.documentID, value)
-            })
-        }
+        let registration = config
+            .firestore
+            .collection(path)
+            .addSnapshotListener { snap, error in
+                guard let snap else { return }
+                let decoder = config.getDecoder() ?? .init()
+                handler(snap.documents.compactMap { documentSnap -> (String, T)? in
+                    guard let value = try? documentSnap.data(as: T.self, decoder: decoder) else {
+                        return nil
+                    }
+                    return (documentSnap.documentID, value)
+                })
+            }
         return AnyCancellable {
             registration.remove()
         }
@@ -129,16 +170,18 @@ final public class LiveFirebaseStorage: FirebaseStorage {
     }
     
     private func collectionListenerRTDB<T: Decodable>(
-        path: CollectionPath<T>,
+        path: String,
+        config: RTDBConfig,
         handler: @escaping ([(String, T)]) -> Void
     ) -> AnyCancellable {
 #if canImport(FirebaseDatabase)
-        let db = Database.database()
-        let ref = db.reference(withPath: path.rendered)
+        let db = config.database
+        let ref = db.reference(withPath: path)
+        let decoder = config.getDecoder() ?? .init()
         let handle = ref.observe(.value) { snapshot, _ in
             // TODO: For now we just unwrap entire value.
             // Consider using child listeners and keep a (very local) cache
-            if let data = try? snapshot.data(as: [String: T].self) {
+            if let data = try? snapshot.data(as: [String: T].self, decoder: decoder) {
                 // TODO: Use firebase RTDB key sorting. I have a Swift
                 // implementation somewhere
                 let sorted = data.sorted(by: { a, b in
@@ -160,23 +203,32 @@ final public class LiveFirebaseStorage: FirebaseStorage {
     
     
     public func load<T: Decodable>(from path: FirebasePath<T>) throws -> T {
-        if path.isFirestorePath {
-            return try loadFirestore(from: path)
-        } else {
-            return try loadRTDB(from: path)
+        switch path.config {
+        case .firestore(let config):
+            return try loadFirestore(from: path.rendered, config: config)
+
+        case .rtdb(let config):
+            return try loadRTDB(from: path.rendered, config: config)
         }
     }
     
-    private func loadFirestore<T: Decodable>(from path: FirebasePath<T>) throws -> T {
+    private func loadFirestore<T: Decodable>(
+        from path: String,
+        config: FirestoreConfig
+    ) throws -> T {
 #if canImport(FirebaseFirestore)
         var _value: T?
         var _error: Error = MyError.error
         
         // TODO: synchronify this - should be fairly quick to load from cache
         
-        Firestore.firestore().document(path.rendered).getDocument(source: FirestoreSource.cache) { snap, error in
+        config
+            .firestore
+            .document(path)
+            .getDocument(source: FirestoreSource.cache) { snap, error in
             do {
-                if let value = try? snap?.data(as: T.self) {
+                let decoder = config.getDecoder() ?? .init()
+                if let value = try? snap?.data(as: T.self, decoder: decoder) {
                     _value = value
                 } else {
                     throw error ?? MyError.error
@@ -194,7 +246,10 @@ final public class LiveFirebaseStorage: FirebaseStorage {
 #endif
     }
     
-    private func loadRTDB<T: Decodable>(from path: FirebasePath<T>) throws -> T {
+    private func loadRTDB<T: Decodable>(
+        from path: String,
+        config: RTDBConfig
+    ) throws -> T {
 #if canImport(FirebaseDatabase)
         // Note: For RTDB you cannot request a value ONLY from cache, so don't attempt to
         // implement this
@@ -205,29 +260,34 @@ final public class LiveFirebaseStorage: FirebaseStorage {
     }
     
     public func save<T: Encodable>(_ value: T, to path: FirebasePath<T>) throws {
-        if path.isFirestorePath {
-            try saveFirestore(value, to: path)
-        } else {
-            try saveRTDB(value, to: path)
+        switch path.config {
+        case .firestore(let config):
+            try saveFirestore(value, to: path.rendered, config: config)
+        case .rtdb(let config):
+            try saveRTDB(value, to: path.rendered, config: config)
         }
     }
     
-    private func saveFirestore<T: Encodable>(_ value: T, to path: FirebasePath<T>) throws {
+    private func saveFirestore<T: Encodable>(_ value: T, to path: String, config: FirestoreConfig) throws {
 #if canImport(FirebaseFirestore)
-        try Firestore.firestore().document(path.rendered).setData(from: value) { error in
-            guard let error else { return }
-            print("Error", error)
-        }
+        let encoder = config.getEncoder() ?? .init()
+        try config
+            .firestore
+            .document(path)
+            .setData(from: value, encoder: encoder) { error in
+                guard let error else { return }
+                print("Error", error)
+            }
 #else
         fatalError("Please link FirebaseFirestore")
 #endif
     }
     
-    private func saveRTDB<T: Encodable>(_ value: T, to path: FirebasePath<T>) throws {
+    private func saveRTDB<T: Encodable>(_ value: T, to path: String, config: RTDBConfig) throws {
 #if canImport(FirebaseDatabase)
-        let db = Database.database()
-        let ref = db.reference(withPath: path.rendered)
-        try ref.setValue(from: value) { error in
+        let db = config.database
+        let ref = db.reference(withPath: path)
+        try ref.setValue(from: value, encoder: config.getEncoder() ?? .init()) { error in
             guard let error else { return }
             print("Error", error)
         }
@@ -237,7 +297,6 @@ final public class LiveFirebaseStorage: FirebaseStorage {
     }
 
 }
-
 
 extension FirebaseStorageQueueKey: DependencyKey {
   public static var liveValue: any FirebaseStorage {
