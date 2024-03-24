@@ -61,12 +61,18 @@ public enum PathKind {
     case firestore
     case rtdb
 }
+
+internal struct FBQuery {
+    internal var limit: Int?
+}
+
 public struct FirebasePath<Element> {
     
     var config: PathConfig
     
     private var fsComponents: [String]
     private var rtdbComponents: [String]
+    internal var query: FBQuery?
 
     public func append<T>(
         _ args: String...,
@@ -75,7 +81,8 @@ public struct FirebasePath<Element> {
         return FirebasePath<T>(
             fsComponents: fsComponents + args,
             rtdbComponents: rtdbComponents + args,
-            config: config ?? self.config
+            config: config ?? self.config,
+            query: query
         )
     }
     
@@ -87,21 +94,24 @@ public struct FirebasePath<Element> {
         return FirebasePath<T>(
             fsComponents: fsComponents + fsArgs,
             rtdbComponents: rtdbComponents + rtdbArgs,
-            config: config ?? self.config
+            config: config ?? self.config,
+            query: query
         )
     }
         
     private init(
         fsComponents: [String],
         rtdbComponents: [String],
-        config: PathConfig
+        config: PathConfig,
+        query: FBQuery?
     ) {
         self.rtdbComponents = rtdbComponents
         self.fsComponents = fsComponents
         self.config = config
+        self.query = query
     }
     
-    var componentsKeyPath: KeyPath<Self, [String]> {
+    private var componentsKeyPath: KeyPath<Self, [String]> {
         switch config {
         case .firestore:
             \.fsComponents
@@ -110,8 +120,16 @@ public struct FirebasePath<Element> {
         }
     }
     
-    var rendered: String {
-        return self[keyPath: componentsKeyPath].joined()
+    fileprivate func _limit(_ limit: Int) -> Self {
+        var p = self
+        var query = p.query ?? FBQuery()
+        query.limit = limit
+        p.query = query
+        return p
+    }
+    
+    public var rendered: String {
+        self[keyPath: componentsKeyPath].joined(separator: "/")
     }
 }
 
@@ -144,4 +162,9 @@ extension FirebasePath where Element: CollectionPathProtocol {
     public func child(_ key: String) -> FirebasePath<Element.Element> {
         append(key)
     }
+    
+    public func limit(_ limit: Int) -> Self {
+        self._limit(limit)
+    }
 }
+

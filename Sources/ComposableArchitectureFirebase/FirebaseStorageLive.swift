@@ -27,6 +27,16 @@ extension FirestoreConfig {
         }
     }
 }
+
+extension FBQuery {
+    func apply(to ref: Query) -> Query {
+        if let limit {
+            return ref.limit(to: limit)
+        } else {
+            return ref
+        }
+    }
+}
 #endif
 
 #if canImport(FirebaseDatabase)
@@ -44,7 +54,20 @@ extension RTDBConfig {
             return Database.database()
         }
     }
+    
 }
+
+extension FBQuery {
+    func apply(to ref: DatabaseQuery) -> DatabaseQuery {
+        if let limit {
+            // TODO: Should I worry about conversion to UInt?
+            return ref.queryLimited(toFirst: UInt(limit))
+        } else {
+            return ref
+        }
+    }
+}
+
 #endif
 
 enum MyError: Error {
@@ -76,9 +99,13 @@ final public class LiveFirebaseStorage: FirebaseStorage {
     ) -> AnyCancellable {
         switch path.config {
         case .firestore(let config):
-            return documentListenerFirestore(path: path.rendered, config: config, handler: handler)
+            return documentListenerFirestore(path: path.rendered, 
+                                             config: config,
+                                             handler: handler)
         case .rtdb(let config):
-            return documentListenerRTDB(path: path.rendered, config: config, handler: handler)
+            return documentListenerRTDB(path: path.rendered,
+                                        config: config,
+                                        handler: handler)
         }
     }
         
@@ -134,23 +161,28 @@ final public class LiveFirebaseStorage: FirebaseStorage {
         path: CollectionPath<T>,
         handler: @escaping ([(String, T)]) -> Void
     ) -> AnyCancellable {
+        let query = path.query
+
         switch path.config {
         case .firestore(let config):
-            return collectionListenerFirestore(path: path.rendered, config: config, handler: handler)
+            return collectionListenerFirestore(path: path.rendered, query: query, config: config, handler: handler)
         case .rtdb(let config):
-            return collectionListenerRTDB(path: path.rendered, config: config, handler: handler)
+            return collectionListenerRTDB(path: path.rendered, query: query, config: config, handler: handler)
         }
     }
     
     private func collectionListenerFirestore<T: Decodable>(
         path: String,
+        query: FBQuery?,
         config: FirestoreConfig,
         handler: @escaping ([(String, T)]) -> Void
     ) -> AnyCancellable {
 #if canImport(FirebaseFirestore)
-        let registration = config
-            .firestore
-            .collection(path)
+        var ref: Query = config.firestore.collection(path)
+        if let query {
+            ref = query.apply(to: ref)
+        }
+        let registration = ref
             .addSnapshotListener { snap, error in
                 guard let snap else { return }
                 let decoder = config.getDecoder() ?? .init()
@@ -171,6 +203,7 @@ final public class LiveFirebaseStorage: FirebaseStorage {
     
     private func collectionListenerRTDB<T: Decodable>(
         path: String,
+        query: FBQuery?,
         config: RTDBConfig,
         handler: @escaping ([(String, T)]) -> Void
     ) -> AnyCancellable {
