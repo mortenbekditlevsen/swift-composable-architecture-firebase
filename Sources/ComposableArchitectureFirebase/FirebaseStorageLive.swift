@@ -301,6 +301,77 @@ final public class LiveFirebaseStorage: FirebaseStorage {
         }
     }
     
+    public func add<T: Encodable>(_ value: T, to path: CollectionPath<T>) throws {
+        switch path.config {
+        case .firestore(let config):
+            try addFirestore(value, to: path.rendered, config: config)
+        case .rtdb(let config):
+            try addRTDB(value, to: path.rendered, config: config)
+        }
+    }
+    
+    private func addFirestore<T: Encodable>(_ value: T, to path: String, config: FirestoreConfig) throws {
+#if canImport(FirebaseFirestore)
+        let encoder = config.getEncoder() ?? .init()
+        try config
+            .firestore
+            .collection(path)
+            .addDocument(from: value, encoder: encoder, completion: { error in
+                guard let error else { return }
+                print("Error", error)
+            })
+#else
+        fatalError("Please link FirebaseFirestore")
+#endif
+    }
+    
+    private func addRTDB<T: Encodable>(_ value: T, to path: String, config: RTDBConfig) throws {
+#if canImport(FirebaseDatabase)
+        try config
+            .database
+            .reference(withPath: path)
+            .childByAutoId()
+            .setValue(from: value, encoder: config.getEncoder() ?? .init()) { error in
+                guard let error else { return }
+                print("Error", error)
+            }
+#else
+        fatalError("Please link FirebaseDatabase")
+#endif
+    }
+
+
+    public func remove<T>(at path: FirebasePath<T>) throws {
+        switch path.config {
+        case .firestore(let config):
+            try removeFirestore(at: path.rendered, config: config)
+        case .rtdb(let config):
+            try removeRTDB(at: path.rendered, config: config)
+        }
+    }
+    
+    private func removeFirestore(at path: String, config: FirestoreConfig) {
+#if canImport(FirebaseFirestore)
+        try config
+            .firestore
+            .document(path)
+            .delete()
+#else
+    fatalError("Please link FirebaseFirestore")
+#endif
+    }
+    
+    private func removeRTDB(at path: String, config: RTDBConfig) {
+#if canImport(FirebaseDatabase)
+        try config
+            .database
+            .reference(withPath: path)
+            .removeValue()
+#else
+        fatalError("Please link FirebaseDatabase")
+#endif
+    }
+
     private func saveFirestore<T: Encodable>(_ value: T, to path: String, config: FirestoreConfig) throws {
 #if canImport(FirebaseFirestore)
         let encoder = config.getEncoder() ?? .init()

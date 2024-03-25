@@ -15,6 +15,10 @@ import WatchKit
 #endif
 
 
+/// XXX TODO: Add a protocol that specifies that an `Identifiable` wishes to store it's value in a colleciton by
+/// its `ID`. This protocol will require the `ID` to be of `String` type
+
+
 extension PersistenceKey {
     /// Creates a persistence key that can read and write to a `Codable` value to the file system.
     ///
@@ -26,17 +30,17 @@ extension PersistenceKey {
     }
     
     public static func firebase<Value: Codable>(_ path: CollectionPath<Value>) -> Self
-    where Value: Identifiable, Self == FirebaseStorageKey<IdentifiedArray<Value.ID, Value>> {
+    where Value: Identifiable, Value: Equatable, Self == FirebaseStorageKey<IdentifiedArray<Value.ID, Value>> {
         FirebaseStorageKey(path: path)
     }
     
-    public static func firebase<Value: Codable>(_ path: CollectionPath<Value>) -> Self
-    where Self == FirebaseStorageKey<IdentifiedArray<String, Identified<String, Value>>> {
+    public static func firebase<Value>(_ path: CollectionPath<Value>) -> Self
+    where Self == FirebaseStorageKey<IdentifiedArray<String, Identified<String, Value>>>, Value: Codable, Value: Equatable {
         FirebaseStorageKey(path: path)
     }
     
-    public static func firebase<Value: Codable>(_ path: CollectionPath<Value>) -> Self
-    where Self == FirebaseStorageKey<[Value]> {
+    public static func firebase<Value>(_ path: CollectionPath<Value>) -> Self
+    where Self == FirebaseStorageKey<[Value]>, Value: Codable, Value: Equatable {
         FirebaseStorageKey(path: path)
     }
 }
@@ -49,12 +53,12 @@ extension PersistenceKey {
 public final class FirebaseStorageKey<Value: Sendable>: PersistenceKey, @unchecked Sendable
 {
     let storage: any FirebaseStorage
-    let value: LockIsolated<Value?>
     var workItem: DispatchWorkItem?
     
     var _save: (Value) -> Void = { _ in }
     let _load: (Value?) -> Value?
-    
+    let _subscribe: (Value?, @escaping (_ newValue: Value?) -> Void) -> Shared<Value>.Subscription
+
     // Note: Only used for hashing...
     private let renderedPath: String
     
@@ -62,8 +66,7 @@ public final class FirebaseStorageKey<Value: Sendable>: PersistenceKey, @uncheck
         @Dependency(\.defaultFirebaseStorage) var storage
         self.storage = storage
         self.renderedPath = path.rendered
-        self.value = LockIsolated<Value?>(nil)
-        
+
         // Can't save...
         self._save = { _ in }
         self._load = { initialValue in
@@ -79,20 +82,58 @@ public final class FirebaseStorageKey<Value: Sendable>: PersistenceKey, @uncheck
         }
     }
     
-    public init<T: Codable>(path: CollectionPath<T>) where Value == IdentifiedArray<String, Identified<String, T>> {
+    public init<T>(path: CollectionPath<T>) where Value == IdentifiedArray<String, Identified<String, T>>, T: Codable, T: Equatable {
         @Dependency(\.defaultFirebaseStorage) var storage
         self.storage = storage
         self.renderedPath = path.rendered
-        self.value = LockIsolated<Value?>(nil)
         
-        // Can't save...
-        self._save = { _ in }
+        let _value = LockIsolated<IdentifiedArray<String, Identified<String, T>>>([])
+
+        self._save = { newValue in
+            let existing = _value.value
+            guard newValue != existing else {
+                return
+            }
+            let newIds = newValue.ids
+            let existingIds = existing.ids
+            let addedIds = newIds.subtracting(existingIds)
+            let removedIds = existingIds.subtracting(newIds)
+            let commonIds = newIds.intersection(existingIds)
+            for id in addedIds {
+                print("Adding \(id)")
+                if let value = newValue[id: id]?.value {
+                    // TODO: Collection errors?
+                    try? storage.save(value, to: path.child(id))
+                }
+            }
+            for id in removedIds {
+                print("Removing \(id)")
+                try? storage.remove(at: path.child(id))
+            }
+            for id in commonIds {
+                guard let new = newValue[id: id]?.value,
+                      let old = existing[id: id]?.value else {
+                    continue
+                }
+                if new != old {
+                    print("Updating \(id)")
+                    try? storage.save(new, to: path.child(id))
+                } else {
+                    print("Skipping \(id)")
+                }
+            }
+            _value.setValue(newValue)
+        }
         self._load = { initialValue in
             initialValue
         }
         self._subscribe = { initialValue, didSet in
             let cancellable = storage.collectionListener(path: path) { (values: [(String, T)]) -> Void in
-                didSet(IdentifiedArray(values.map { Identified($0.1, id: $0.0) }))
+                let identified = IdentifiedArray(values.map { Identified($0.1, id: $0.0) })
+                if identified != _value.value {
+                    _value.setValue(identified)
+                    didSet(identified)
+                }
             }
             return Shared.Subscription {
                 cancellable.cancel()
@@ -100,20 +141,74 @@ public final class FirebaseStorageKey<Value: Sendable>: PersistenceKey, @uncheck
         }
     }
     
-    public init<T: Codable>(path: CollectionPath<T>) where T: Identifiable, Value == IdentifiedArray<T.ID, T> {
+    public init<T: Codable>(path: CollectionPath<T>) where T: Identifiable, Value == IdentifiedArray<T.ID, T>, T: Equatable {
         @Dependency(\.defaultFirebaseStorage) var storage
         self.storage = storage
         self.renderedPath = path.rendered
-        self.value = LockIsolated<Value?>(nil)
-        
-        // Can't save...
-        self._save = { _ in }
+        let _value = LockIsolated<IdentifiedArray<T.ID, T>>([])
+        let _map: LockIsolated<[T.ID: String]> = .init([:])
+
+        self._save = { newValue in
+            let existing = _value.value
+            guard newValue != existing else {
+                return
+            }
+            let newIds = newValue.ids
+            let existingIds = existing.ids
+            let addedIds = newIds.subtracting(existingIds)
+            let removedIds = existingIds.subtracting(newIds)
+            let commonIds = newIds.intersection(existingIds)
+            for id in addedIds {
+                // For added ids, we do not yet have a value in the map.
+                // Instead we call the 'add' api
+                print("Adding \(id)")
+                if let value = newValue[id: id] {
+                    // TODO: Collection errors?
+                    try? storage.add(value, to: path)
+                }
+            }
+            for id in removedIds {
+                guard let mappedId = _map.value[id] else {
+                    continue
+                }
+
+                print("Removing \(id)")
+                try? storage.remove(at: path.child(mappedId))
+            }
+            for id in commonIds {
+                guard let mappedId = _map.value[id] else {
+                    continue
+                }
+
+                guard let new = newValue[id: id],
+                      let old = existing[id: id] else {
+                    continue
+                }
+                if new != old {
+                    print("Updating \(id)")
+                    try? storage.save(new, to: path.child(mappedId))
+                } else {
+                    print("Skipping \(id)")
+                }
+            }
+            _value.setValue(newValue)
+        }
         self._load = { initialValue in
             initialValue
         }
         self._subscribe = { initialValue, didSet in
             let cancellable = storage.collectionListener(path: path) { (values: [(String, T)]) -> Void in
-                didSet(IdentifiedArray(values.map(\.1)))
+                let identified = IdentifiedArray(values.map(\.1))
+                var map: [T.ID: String] = [:]
+                if identified != _value.value {
+                    _value.setValue(identified)
+                    for (key, value) in values {
+                        let id = value.id
+                        map[id] = key
+                    }
+                    _map.withValue { [map] in $0 = map }
+                    didSet(identified)
+                }
             }
             return Shared.Subscription {
                 cancellable.cancel()
@@ -126,7 +221,6 @@ public final class FirebaseStorageKey<Value: Sendable>: PersistenceKey, @uncheck
         self.storage = storage
         self.renderedPath = path.rendered
         let _value = LockIsolated<Value?>(nil)
-        self.value = _value
         
         self._load = { initialValue in
             try? storage.load(from: path) ?? initialValue
@@ -164,9 +258,7 @@ public final class FirebaseStorageKey<Value: Sendable>: PersistenceKey, @uncheck
     public func save(_ value: Value) {
         self._save(value)
     }
-    
-    let _subscribe: (Value?, @escaping (_ newValue: Value?) -> Void) -> Shared<Value>.Subscription
-    
+        
     public func subscribe(
         initialValue: Value?, didSet: @escaping (_ newValue: Value?) -> Void
     ) -> Shared<Value>.Subscription {
@@ -200,6 +292,8 @@ public protocol FirebaseStorage: Sendable, AnyObject {
     
     func load<T: Decodable>(from path: FirebasePath<T>) throws -> T
     func save<T: Encodable>(_ value: T, to path: FirebasePath<T>) throws
+    func remove<T>(at path: FirebasePath<T>) throws
+    func add<T: Encodable>(_ value: T, to path: CollectionPath<T>) throws
 }
 
 /// A ``FileStorage`` conformance that emulates a file system without actually writing anything
@@ -286,6 +380,17 @@ public final class EphemeralFirebaseStorage: FirebaseStorage, Sendable {
         let data = try encoder.encode(value)
         self.documentDatabase.withValue { $0[rendered] = data }
         self.sourceHandlers.value[rendered]?(data)
+    }
+    
+    public func remove<T>(at path: FirebasePath<T>) throws {
+        let rendered = path.rendered
+        self.documentDatabase.withValue { $0[rendered] = nil }
+        self.sourceHandlers.withValue { $0[rendered] = nil }
+    }
+    
+    public func add<T>(_ value: T, to path: CollectionPath<T>) throws where T : Encodable {
+        let id = UUID().uuidString
+        try save(value, to: path.child(id))
     }
 }
 
