@@ -14,6 +14,9 @@ let package = Package(
         .library(
             name: "ComposableArchitectureFirebase",
             targets: ["ComposableArchitectureFirebase"]),
+        .library(
+            name: "FirebaseStorageLive",
+            targets: ["FirebaseStorageLive"]),
     ],
     dependencies: [
         .package(
@@ -34,6 +37,16 @@ let package = Package(
                 .product(
                     name: "ComposableArchitecture",
                     package: "swift-composable-architecture"
+                )
+            ]
+        ),
+        .target(
+            name: "FirebaseStorageLive",
+            dependencies: [
+                "ComposableArchitectureFirebase",
+                .product(
+                    name: "ComposableArchitecture",
+                    package: "swift-composable-architecture"
                 ),
                 .product(
                     name: "FirebaseFirestore",
@@ -45,6 +58,7 @@ let package = Package(
                 ),
             ]
         ),
+
         .testTarget(
             name: "ComposableArchitectureFirebaseTests",
             dependencies: ["ComposableArchitectureFirebase"]),

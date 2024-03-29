@@ -7,6 +7,7 @@
 
 import Combine
 import ComposableArchitecture
+import ComposableArchitectureFirebase
 #if canImport(FirebaseFirestore)
 import FirebaseFirestore
 #endif
@@ -26,6 +27,20 @@ extension FirestoreConfig {
             Firestore.firestore()
         }
     }
+    
+    func getDecoder() -> Firestore.Decoder {
+        let decoder = Firestore.Decoder()
+        // XXX TODO: forward all options
+        decoder.dataDecodingStrategy = decodingOptions.dataDecodingStrategy.firebase
+        return decoder
+    }
+    
+    func getEncoder() -> Firestore.Encoder {
+        let encoder = Firestore.Encoder()
+        // XXX TODO: forward all options
+        encoder.dataEncodingStrategy = encodingOptions.dataEncodingStrategy.firebase
+        return encoder
+    }
 }
 
 extension FBQuery {
@@ -37,6 +52,38 @@ extension FBQuery {
         }
     }
 }
+
+extension EncodingOptions.DataEncodingStrategy {
+    var firebase: FirebaseDataEncoder.DataEncodingStrategy {
+        switch self {
+        case .blob:
+            return .blob
+        case .base64:
+            return .base64
+        case .deferredToData:
+            return .deferredToData
+        case .custom(let custom):
+            return .custom(custom)
+        }
+    }
+}
+
+extension DecodingOptions.DataDecodingStrategy {
+    var firebase: FirebaseDataDecoder.DataDecodingStrategy {
+        switch self {
+        case .blob:
+            return .blob
+        case .base64:
+            return .base64
+        case .deferredToData:
+            return .deferredToData
+        case .custom(let custom):
+            return .custom(custom)
+        }
+    }
+}
+
+
 #endif
 
 #if canImport(FirebaseDatabase)
@@ -54,6 +101,21 @@ extension RTDBConfig {
             return Database.database()
         }
     }
+
+    func getDecoder() -> FirebaseDataDecoder {
+        let decoder = FirebaseDataDecoder()
+        // XXX TODO: forward all options
+        decoder.dataDecodingStrategy = decodingOptions.dataDecodingStrategy.firebase
+        return decoder
+    }
+    
+    func getEncoder() -> FirebaseDataEncoder {
+        let encoder = FirebaseDataEncoder()
+        // XXX TODO: forward all options
+        encoder.dataEncodingStrategy = encodingOptions.dataEncodingStrategy.firebase
+        return encoder
+    }
+
     
 }
 
@@ -118,7 +180,7 @@ final public class LiveFirebaseStorage: FirebaseStorage {
         let registration = config.firestore
             .document(path)
             .addSnapshotListener { snap, error in
-                let decoder = config.getDecoder() ?? .init()
+                let decoder = config.getDecoder()
                 if let data = try? snap?.data(as: T.self, decoder: decoder)  {
                     handler(data)
                 }
