@@ -21,11 +21,11 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/pointfreeco/swift-composable-architecture",
-            branch: "shared-state-beta"
+            .upToNextMajor(from: "1.11.2")
         ),
         .package(
             url: "https://github.com/firebase/firebase-ios-sdk.git",
-            .upToNextMajor(from: "10.22.0")
+            .upToNextMajor(from: "10.28.1")
         ),
     ],
     targets: [
