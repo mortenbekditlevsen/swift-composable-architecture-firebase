@@ -105,7 +105,6 @@ public struct EncodingOptions {
         case custom((_ codingPath: [CodingKey]) -> CodingKey)
     }
 
-    
     public let dataEncodingStrategy: DataEncodingStrategy
     public let dateEncodingStrategy: DateEncodingStrategy
     public let keyEncodingStrategy: KeyEncodingStrategy

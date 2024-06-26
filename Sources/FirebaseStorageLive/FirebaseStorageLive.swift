@@ -20,12 +20,18 @@ import Foundation
 
 #if canImport(FirebaseFirestore)
 extension FirestoreConfig {
+    static var dispatchQueue: DispatchQueue = DispatchQueue(label: "Background")
     var firestore: Firestore {
+        var settings = FirestoreSettings()
+        settings.dispatchQueue = FirestoreConfig.dispatchQueue
+        let firestore: Firestore
         if let database {
-            Firestore.firestore(database: database)
+            firestore = Firestore.firestore(database: database)
         } else {
-            Firestore.firestore()
+            firestore = Firestore.firestore()
         }
+        firestore.settings = settings
+        return firestore
     }
     
     func getDecoder() -> Firestore.Decoder {
@@ -193,8 +199,6 @@ extension RTDBConfig {
         encoder.userInfo = encodingOptions.userInfo
         return encoder
     }
-
-    
 }
 
 extension FBQuery {
@@ -355,10 +359,9 @@ final public class LiveFirebaseStorage: FirebaseStorage {
             // TODO: For now we just unwrap entire value.
             // Consider using child listeners and keep a (very local) cache
             if let data = try? snapshot.data(as: [String: T].self, decoder: decoder) {
-                // TODO: Use firebase RTDB key sorting. I have a Swift
-                // implementation somewhere
-                let sorted = data.sorted(by: { a, b in
-                    a.key < b.key
+                // Note: Use firebase RTDB key sorting.
+                let sorted = data.sorted(by: { l, r in
+                    rtdbKeyIsLessThan(l.key, r.key)
                 })
                 handler(sorted)
             }
@@ -393,23 +396,27 @@ final public class LiveFirebaseStorage: FirebaseStorage {
         var _value: T?
         var _error: Error = MyError.error
         
-        // TODO: synchronify this - should be fairly quick to load from cache
-        
-        config
-            .firestore
+        // Perform a synchronous load (perhaps unwise since this is called from
+        // the main thread, which we are then actively blocking?)
+        let lock = DispatchGroup()
+        lock.enter()
+        config.firestore
             .document(path)
             .getDocument(source: FirestoreSource.cache) { snap, error in
-            do {
-                let decoder = config.getDecoder() ?? .init()
-                if let value = try? snap?.data(as: T.self, decoder: decoder) {
-                    _value = value
-                } else {
-                    throw error ?? MyError.error
+                do {
+                    let decoder = config.getDecoder() ?? .init()
+                    if let value = try? snap?.data(as: T.self, decoder: decoder) {
+                        _value = value
+                    } else {
+                        throw error ?? MyError.error
+                    }
+                } catch {
+                    _error = error
                 }
-            } catch {
-                _error = error
+                lock.leave()
             }
-        }
+
+        lock.wait()
         if let _value {
             return _value
         }
@@ -547,4 +554,29 @@ extension FirebaseStorageQueueKey: DependencyKey {
     LiveFirebaseStorage(
       queue: DispatchQueue(label: "co.pointfree.ComposableArchitecture.FirebaseStorage"))
   }
+}
+
+/* This method replicates the sorting order of keys used by the real time database */
+private func rtdbKeyIsLessThan(_ a: String, _ b: String) -> Bool {
+    guard a != b else { return false }
+    
+    switch (tryParseInt(a), tryParseInt(b)) {
+    case (.some(let aAsInt), .some(let bAsInt)):
+        // If a or b has prefixed 0s, but evaluate to the same number, then the length of the string gives the sort order
+        return aAsInt - bAsInt == 0 ? a.count < b.count : aAsInt < bAsInt
+    case (.some, .none):
+        return true
+    case (.none, .some):
+        return false
+    case (.none, .none):
+        return a < b
+    }
+}
+
+private func tryParseInt(_ str: String) -> Int? {
+    guard let intVal = Int(str) else { return nil }
+    if intVal >= -2_147_483_648 && intVal <= 2_147_483_647 {
+        return intVal
+    }
+    return nil
 }
