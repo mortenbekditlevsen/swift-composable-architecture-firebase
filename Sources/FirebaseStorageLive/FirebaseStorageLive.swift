@@ -30,15 +30,21 @@ extension FirestoreConfig {
     
     func getDecoder() -> Firestore.Decoder {
         let decoder = Firestore.Decoder()
-        // XXX TODO: forward all options
         decoder.dataDecodingStrategy = decodingOptions.dataDecodingStrategy.firebase
+        decoder.dateDecodingStrategy = decodingOptions.dateDecodingStrategy.firebase
+        decoder.keyDecodingStrategy = decodingOptions.keyDecodingStrategy.firebase
+        decoder.nonConformingFloatDecodingStrategy = decodingOptions.nonConformingFloatDecodingStrategy.firebase
+        decoder.userInfo = decodingOptions.userInfo
         return decoder
     }
     
     func getEncoder() -> Firestore.Encoder {
         let encoder = Firestore.Encoder()
-        // XXX TODO: forward all options
         encoder.dataEncodingStrategy = encodingOptions.dataEncodingStrategy.firebase
+        encoder.dateEncodingStrategy = encodingOptions.dateEncodingStrategy.firebase
+        encoder.keyEncodingStrategy = encodingOptions.keyEncodingStrategy.firebase
+        encoder.nonConformingFloatEncodingStrategy = encodingOptions.nonConformingFloatEncodingStrategy.firebase
+        encoder.userInfo = encodingOptions.userInfo
         return encoder
     }
 }
@@ -68,6 +74,40 @@ extension EncodingOptions.DataEncodingStrategy {
     }
 }
 
+extension EncodingOptions.DateEncodingStrategy {
+    var firebase: FirebaseDataEncoder.DateEncodingStrategy {
+        switch self {
+        case .deferredToDate: .deferredToDate
+        case .secondsSince1970: .secondsSince1970
+        case .millisecondsSince1970: .millisecondsSince1970
+        case .iso8601: .iso8601
+        case .formatted(let dateFormatter): .formatted(dateFormatter)
+        case .custom(let transform): .custom(transform)
+        }
+    }
+}
+
+extension EncodingOptions.KeyEncodingStrategy {
+    var firebase: FirebaseDataEncoder.KeyEncodingStrategy {
+        switch self {
+        case .useDefaultKeys: .useDefaultKeys
+        case .convertToSnakeCase: .convertToSnakeCase
+        case .custom(let transform): .custom(transform)
+        }
+    }
+}
+
+extension EncodingOptions.NonConformingFloatEncodingStrategy {
+    var firebase: FirebaseDataEncoder.NonConformingFloatEncodingStrategy {
+        switch self {
+        case .throw: .throw
+        case .convertToString(let positiveInfinity, let negativeInfinity, let nan):
+                .convertToString(positiveInfinity: positiveInfinity, negativeInfinity: negativeInfinity, nan: nan)
+        }
+    }
+}
+
+
 extension DecodingOptions.DataDecodingStrategy {
     var firebase: FirebaseDataDecoder.DataDecodingStrategy {
         switch self {
@@ -83,6 +123,38 @@ extension DecodingOptions.DataDecodingStrategy {
     }
 }
 
+extension DecodingOptions.DateDecodingStrategy {
+    var firebase: FirebaseDataDecoder.DateDecodingStrategy {
+        switch self {
+        case .deferredToDate: .deferredToDate
+        case .secondsSince1970: .secondsSince1970
+        case .millisecondsSince1970: .millisecondsSince1970
+        case .iso8601: .iso8601
+        case .formatted(let dateFormatter): .formatted(dateFormatter)
+        case .custom(let transform): .custom(transform)
+        }
+    }
+}
+
+extension DecodingOptions.KeyDecodingStrategy {
+    var firebase: FirebaseDataDecoder.KeyDecodingStrategy {
+        switch self {
+        case .useDefaultKeys: .useDefaultKeys
+        case .convertFromSnakeCase: .convertFromSnakeCase
+        case .custom(let transform): .custom(transform)
+        }
+    }
+}
+
+extension DecodingOptions.NonConformingFloatDecodingStrategy {
+    var firebase: FirebaseDataDecoder.NonConformingFloatDecodingStrategy {
+        switch self {
+        case .throw: .throw
+        case .convertFromString(let positiveInfinity, let negativeInfinity, let nan):
+                .convertFromString(positiveInfinity: positiveInfinity, negativeInfinity: negativeInfinity, nan: nan)
+        }
+    }
+}
 
 #endif
 
@@ -104,15 +176,21 @@ extension RTDBConfig {
 
     func getDecoder() -> FirebaseDataDecoder {
         let decoder = FirebaseDataDecoder()
-        // XXX TODO: forward all options
         decoder.dataDecodingStrategy = decodingOptions.dataDecodingStrategy.firebase
+        decoder.dateDecodingStrategy = decodingOptions.dateDecodingStrategy.firebase
+        decoder.keyDecodingStrategy = decodingOptions.keyDecodingStrategy.firebase
+        decoder.nonConformingFloatDecodingStrategy = decodingOptions.nonConformingFloatDecodingStrategy.firebase
+        decoder.userInfo = decodingOptions.userInfo
         return decoder
     }
     
     func getEncoder() -> FirebaseDataEncoder {
         let encoder = FirebaseDataEncoder()
-        // XXX TODO: forward all options
         encoder.dataEncodingStrategy = encodingOptions.dataEncodingStrategy.firebase
+        encoder.dateEncodingStrategy = encodingOptions.dateEncodingStrategy.firebase
+        encoder.keyEncodingStrategy = encodingOptions.keyEncodingStrategy.firebase
+        encoder.nonConformingFloatEncodingStrategy = encodingOptions.nonConformingFloatEncodingStrategy.firebase
+        encoder.userInfo = encodingOptions.userInfo
         return encoder
     }
 
